@@ -1,0 +1,112 @@
+---
+name: Build Linux
+permissions: {}
+on:
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.14'
+
+jobs:
+  build:
+    name: Linux
+    env:
+      APP_ID: dev.lizardbyte.app.Sunshine
+      VERSION: ${{ github.sha }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    steps:
+      - name: More space
+        uses: LizardByte/actions/actions/more_space@a46850981292c4bbc0c41715f286ad95adaaaf4a
+        with:
+          analyze-space-savings: true
+          clean-all: true
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          submodules: recursive
+
+      - name: Setup Dependencies Linux
+        timeout-minutes: 5
+        run: |
+          mkdir -p artifacts
+          sudo add-apt-repository universe
+          sudo apt-get install -y \
+            libdrm-dev \
+            libfuse2 \
+            libgl-dev \
+            libwayland-dev \
+            libx11-xcb-dev \
+            libxcb-dri3-dev \
+            libxfixes-dev
+
+      - name: Build latest libva
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        timeout-minutes: 5
+        run: |
+          gh release download --archive=tar.gz --repo=intel/libva
+          tar xzf libva-*.tar.gz && rm libva-*.tar.gz
+          cd libva-*
+          ./autogen.sh --prefix=/usr --libdir=/usr/lib/x86_64-linux-gnu \
+            --enable-drm --enable-x11 --enable-glx --enable-wayland --without-legacy
+          make -j "$(nproc)"
+          sudo make install
+          cd .. && rm -rf libva-*
+
+      - name: Build Linux
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          BUILD_VERSION: ${{ github.sha }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          chmod +x ./scripts/linux_build.sh
+          echo "::add-matcher::.github/matchers/gcc.json"
+          ./scripts/linux_build.sh \
+            --publisher-name="${GITHUB_REPOSITORY_OWNER}" \
+            --publisher-website="https://app.lizardbyte.dev" \
+            --publisher-issue-url="https://app.lizardbyte.dev/support" \
+            --skip-cleanup \
+            --skip-package \
+            --ubuntu-test-repo --appimage-build
+          echo "::remove-matcher owner=gcc::"
+
+      - name: Package Linux - AppImage
+        working-directory: build
+        run: |
+          DESTDIR=AppDir ninja install
+          cp -f ../packaging/linux/AppImage/AppRun ./AppDir/
+          chmod +x ./AppDir/AppRun
+          DESKTOP_FILE="${DESKTOP_FILE:-${APP_ID}.desktop}"
+          ICON_FILE="${ICON_FILE:-sunshine.png}"
+          LINUXDEPLOY_GH="https://github.com/linuxdeploy/linuxdeploy"
+          wget -q "${LINUXDEPLOY_GH}/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          chmod +x linuxdeploy-x86_64.AppImage
+          wget -q "${LINUXDEPLOY_GH}-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
+          chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
+          export QMAKE=/usr/lib/qt6/bin/qmake
+          export EXTRA_QT_MODULES="svg;"
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir ./AppDir \
+            --plugin qt \
+            --executable ./sunshine \
+            --icon-file "../$ICON_FILE" \
+            --desktop-file "./$DESKTOP_FILE" \
+            --output appimage
+          mv Sunshine*.AppImage ../artifacts/sunshine.AppImage
+          chmod +x ../artifacts/sunshine.AppImage
+
+      - name: Verify AppImage
+        run: |
+          wget https://github.com/TheAssassin/appimagelint/releases/download/continuous/appimagelint-x86_64.AppImage
+          chmod +x appimagelint-x86_64.AppImage
+          ./appimagelint-x86_64.AppImage ./artifacts/sunshine.AppImage
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sunshine-linux
+          path: artifacts/
+          if-no-files-found: error
