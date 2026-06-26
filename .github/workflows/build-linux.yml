@@ -4,9 +4,6 @@ permissions: {}
 on:
   workflow_dispatch:
 
-env:
-  PYTHON_VERSION: '3.14'
-
 jobs:
   build:
     name: ARM64
@@ -17,7 +14,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install apt deps
+      - name: Install deps
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -52,29 +49,28 @@ jobs:
             libavutil-dev \
             libavformat-dev \
             libswscale-dev \
-            libpugixml-dev
+            libpugixml-dev \
+            libopus-dev
 
       - name: Build
         run: |
-          mkdir build && cd build
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_WERROR=ON \
-            -DSUNSHINE_BUILD_HOME=ON \
-            -DSUNSHINE_BUILD_TESTS=OFF \
-            -DSUNSHINE_EXECUTABLE_NAME=sunshine
-          make -j "$(nproc)"
-          mkdir -p ../artifacts
-          cp sunshine ../artifacts/
+          chmod +x ./scripts/linux_build.sh
+          ./scripts/linux_build.sh \
+            --publisher-name="${GITHUB_REPOSITORY_OWNER}" \
+            --publisher-website="https://app.lizardbyte.dev" \
+            --publisher-issue-url="https://app.lizardbyte.dev/support" \
+            --skip-cleanup
 
-      - name: Strip
-        run: |
-          strip artifacts/sunshine
-          ls -lh artifacts/
-
-      - name: Upload Artifacts
+      - name: Upload .deb
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: sunshine-arm64
-          path: artifacts/
+          name: sunshine-arm64-deb
+          path: build/*.deb
+          if-no-files-found: error
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sunshine-arm64-binary
+          path: build/sunshine
           if-no-files-found: error
