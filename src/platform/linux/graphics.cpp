@@ -432,20 +432,36 @@ namespace egl {
     cap_free(caps);
 #endif
 
-    constexpr int conf_attr[] {
+    int count;
+    EGLConfig conf;
+
+    constexpr int conf_attr_gl[] {
       EGL_RENDERABLE_TYPE,
       EGL_OPENGL_BIT,
       EGL_NONE
     };
+    constexpr int conf_attr_gles[] {
+      EGL_RENDERABLE_TYPE,
+      EGL_OPENGL_ES3_BIT,
+      EGL_NONE
+    };
 
-    int count;
-    EGLConfig conf;
-    if (!eglChooseConfig(display, conf_attr, &conf, 1, &count)) {
-      BOOST_LOG(error) << "Couldn't set config attributes: ["sv << util::hex(eglGetError()).to_string_view() << ']';
-      return std::nullopt;
+    bool is_gles = false;
+    if (!eglChooseConfig(display, conf_attr_gl, &conf, 1, &count)) {
+      if (!eglChooseConfig(display, conf_attr_gles, &conf, 1, &count)) {
+        BOOST_LOG(error) << "Couldn't set config attributes: ["sv << util::hex(eglGetError()).to_string_view() << ']';
+        return std::nullopt;
+      }
+      is_gles = true;
     }
 
-    if (!eglBindAPI(EGL_OPENGL_API)) {
+    if (is_gles) {
+      if (!eglBindAPI(EGL_OPENGL_ES_API)) {
+        BOOST_LOG(error) << "Couldn't bind ES API: ["sv << util::hex(eglGetError()).to_string_view() << ']';
+        return std::nullopt;
+      }
+    }
+    else if (!eglBindAPI(EGL_OPENGL_API)) {
       BOOST_LOG(error) << "Couldn't bind API: ["sv << util::hex(eglGetError()).to_string_view() << ']';
       return std::nullopt;
     }

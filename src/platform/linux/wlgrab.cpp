@@ -282,8 +282,23 @@ namespace wl {
       gl::ctx.GetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
       BOOST_LOG(debug) << "[wlgrab] width and height: w "sv << w << " h "sv << h;
 
-      gl::ctx.GetTextureSubImage((*rgb_opt)->tex[0], 0, 0, 0, 0, width, height, 1, GL_BGRA, GL_UNSIGNED_BYTE, img_out->height * img_out->row_pitch, img_out->data);
+      GLuint fb;
+      gl::ctx.GenFramebuffers(1, &fb);
+      gl::ctx.BindFramebuffer(GL_FRAMEBUFFER, fb);
+      gl::ctx.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (*rgb_opt)->tex[0], 0);
+      gl::ctx.ReadPixels(0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, img_out->data);
+      gl::ctx.BindFramebuffer(GL_FRAMEBUFFER, 0);
+      gl::ctx.DeleteFramebuffers(1, &fb);
       gl::ctx.BindTexture(GL_TEXTURE_2D, 0);
+
+      // glReadPixels reads bottom-up; flip rows to get top-down like GetTextureSubImage
+      auto row_bytes = img_out->row_pitch;
+      auto tmp_row = std::make_unique<uint8_t[]>(row_bytes);
+      for (int y = 0; y < height / 2; y++) {
+        memcpy(tmp_row.get(), img_out->data + y * row_bytes, row_bytes);
+        memcpy(img_out->data + y * row_bytes, img_out->data + (height - 1 - y) * row_bytes, row_bytes);
+        memcpy(img_out->data + (height - 1 - y) * row_bytes, tmp_row.get(), row_bytes);
+      }
 
       img_out->frame_timestamp = current_frame->frame_timestamp;
 
